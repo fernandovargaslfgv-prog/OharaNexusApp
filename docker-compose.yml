@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  ohara-nexus:
+    build: .
+    container_name: ohara-nexus-app
+    hostname: ohara-nexus
+    ports:
+      - "3001:3000"
+    volumes:
+      # 1. Tus Mangas: La izquierda es tu carpeta real, la derecha es interna
+      - /home/luis/mangas/General/mangas:/app/mangas_data
+
+      # 2. La Base de Datos: CRÍTICO para no perder favoritos/historial
+      # Mapeamos el archivo individualmente para que persista en tu carpeta del proyecto
+      - ./nexus.db:/app/nexus.db
+
+      # 3. Cache de portadas (por si acaso las guardas como archivos)
+      - ./cover_cache:/app/cover_cache
+
+    environment:
+      - NODE_ENV=production
+      # Ruta interna donde la App buscará los archivos
+      - MANGA_PATH=/app/mangas_data
+    restart: always

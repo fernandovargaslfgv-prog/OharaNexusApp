@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* --- RESET Y CONTROL DE SCROLL AGRESIVO --- */
+/* Esto soluciona que el scroll solo funcione en la barra de abajo */
+html, body {
+  background-color: #000000;
+  color: #ffffff;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden !important;
+  /* Forzamos el scroll vertical en todo el documento */
+  overflow-y: auto !important;
+  height: auto !important;
+  min-height: 100vh;
+  /* VITAL: Obliga al navegador a priorizar el movimiento vertical del dedo */
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Aplicamos touch-action a todos los contenedores para que ninguno "robe" el gesto vertical */
+main, section, div, .snap-x, .overflow-x-auto {
+  touch-action: pan-y !important;
+}
+
+/* Ocultar barras de scroll estéticas */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* --- OPTIMIZACIÓN DEL LECTOR (Full Width) --- */
+.reader-mode {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.reader-image {
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}
+
+/* --- EL TRUCO DEL BUSCADOR (Móvil vs Web) --- */
+.mobile-hide-search input {
+  display: none !important;
+}
+
+@media (min-width: 768px) {
+  .mobile-hide-search input {
+    display: block !important;
+  }
+}
+
+/* --- ESTILO PARA BÚSQUEDA EN LISTA (Sin imágenes) --- */
+.search-list-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1rem 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s;
+}
+
+.search-list-item:active {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* --- ESPACIADO PARA LA BARRA INFERIOR --- */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Suavizado de transiciones */
+.animate-in {
+  animation-duration: 400ms;
+  animation-timing-function: ease-out;
+}
