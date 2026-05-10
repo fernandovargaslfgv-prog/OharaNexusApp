@@ -48,15 +48,14 @@ export default async function MangaLobbyPage({ params }: MangaLobbyProps) {
     console.error("Error leyendo carpeta de capítulos:", e);
   }
 
-  const mainCover = chapters.length > 0 
-    ? `/api/cover?series=${encodeURIComponent(actualFolderName)}&chapter=${encodeURIComponent(chapters[0])}`
-    : "";
+  // CORRECCIÓN 1: Dejamos que el "Cerebro" de la API decida la mejor portada principal
+  const mainCover = `/api/cover?series=${encodeURIComponent(actualFolderName)}`;
 
   return (
     <main className="min-h-screen bg-black text-white pb-24 md:pb-10">
       <section className="relative w-full h-[400px] sm:h-[500px] overflow-hidden bg-black">
         <div className="absolute inset-0 z-0">
-          <img src={mainCover} className="w-full h-full object-cover opacity-60 brightness-[0.3] blur-[2px] scale-105" alt="" />
+          <img src={mainCover} className="w-full h-full object-cover opacity-60 brightness-[0.3] blur-[2px] scale-105" alt="Fondo" />
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
         </div>
         <div className="relative z-10 max-w-6xl mx-auto h-full px-6 flex flex-col justify-end pb-16 sm:pb-28">
@@ -75,24 +74,37 @@ export default async function MangaLobbyPage({ params }: MangaLobbyProps) {
           </div>
 
           <div className="grid grid-cols-1 gap-2">
-            {chapters.map((chapter, index) => (
-                <Link 
-                  key={chapter} 
-                  href={`/manga/${encodeURIComponent(actualFolderName)}/${encodeURIComponent(chapter)}`} 
-                  className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/[0.03] transition-all border border-transparent hover:border-white/5"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-red-600 text-[10px] font-black uppercase">#{index + 1}</span>
-                      <LastReadBadge title={actualFolderName} chapter={chapter} />
+            {chapters.map((chapter, index) => {
+                // CORRECCIÓN 2: URL a prueba de bombas para la portada de cada capítulo (con encodeURIComponent)
+                const chapterCoverUrl = `/api/cover?series=${encodeURIComponent(actualFolderName)}&chapter=${encodeURIComponent(chapter)}`;
+
+                return (
+                  <Link 
+                    key={chapter} 
+                    href={`/manga/${encodeURIComponent(actualFolderName)}/${encodeURIComponent(chapter)}`} 
+                    className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/[0.03] transition-all border border-transparent hover:border-white/5"
+                  >
+                    {/* NUEVO: Miniatura de la portada del capítulo */}
+                    <img 
+                      src={chapterCoverUrl} 
+                      alt={`Portada de ${chapter}`}
+                      loading="lazy" 
+                      className="w-12 h-16 sm:w-16 sm:h-24 object-cover rounded-md shadow-md border border-white/5 bg-zinc-900 flex-shrink-0"
+                    />
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-red-600 text-[10px] font-black uppercase">#{index + 1}</span>
+                        <LastReadBadge title={actualFolderName} chapter={chapter} />
+                      </div>
+                      <h3 className="text-sm sm:text-lg font-bold text-zinc-300 group-hover:text-white truncate">
+                        {chapter.replace(/\.[^/.]+$/, "")}
+                      </h3>
                     </div>
-                    <h3 className="text-sm sm:text-lg font-bold text-zinc-300 group-hover:text-white truncate">
-                      {chapter.replace(/\.[^/.]+$/, "")}
-                    </h3>
-                  </div>
-                  <div className="pr-4 text-zinc-700 font-black text-[10px]">LEER →</div>
-                </Link>
-            ))}
+                    <div className="pr-4 text-zinc-700 font-black text-[10px]">LEER →</div>
+                  </Link>
+                );
+            })}
           </div>
         </div>
       </section>

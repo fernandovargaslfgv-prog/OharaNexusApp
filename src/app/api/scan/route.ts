@@ -1,32 +1,59 @@
 import { NextResponse } from "next/server";
-import { scanLibrary } from "@/lib/indexer"; // Ajusta la ruta si no usas el alias @
+import fs from "fs";
+import path from "path";
+import { db } from "@/db";
+import { mangas } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
-export async function POST(request: Request) {
+// La ruta que usa Docker para ver tus mangas
+const MANGA_ROOT = process.env.MANGA_PATH || "/app/mangas_data";
+
+export async function GET() {
   try {
-    const { libraryId } = await request.json();
-
-    // 1. Validación básica
-    if (!libraryId) {
-      return NextResponse.json(
-        { error: "ID de librería no proporcionado" },
-        { status: 400 }
-      );
+    console.log(`[Escáner] Iniciando búsqueda en: ${MANGA_ROOT}`);
+    
+    // Verificamos si la carpeta existe
+    if (!fs.existsSync(MANGA_ROOT)) {
+      return NextResponse.json({ error: `La carpeta ${MANGA_ROOT} no existe en el contenedor.` }, { status: 404 });
     }
 
-    // 2. Ejecutar el escaneo Pro (recursivo y multiformato)
-    // Pasamos el ID convertido a número por si acaso llega como string
-    await scanLibrary(Number(libraryId));
+    const folders = fs.readdirSync(MANGA_ROOT, { withFileTypes: true });
+    let addedCount = 0;
+
+    for (const dirent of folders) {
+      // Ignorar archivos ocultos o de sistema
+      if (dirent.name.startsWith('.')) continue;
+
+      // De momento, nuestro indexador asume que cada carpeta es un manga
+      if (dirent.isDirectory()) {
+        const title = dirent.name;
+        const fullPath = path.join(MANGA_ROOT, title);
+
+        // Comprobar si este manga ya está en la Base de Datos
+        const existingManga = await db.select().from(mangas).where(eq(mangas.title, title)).get();
+
+        if (!existingManga) {
+          // Si no existe, lo creamos en la DB
+          await db.insert(mangas).values({
+            title: title,
+            path: fullPath,
+            author: "Nexus Library",
+            // Dejamos una portada por defecto que luego mejoraremos
+            cover: `/api/cover?series=${encodeURIComponent(title)}`, 
+          });
+          addedCount++;
+          console.log(`[Escáner] Añadido a la DB: ${title}`);
+        }
+      }
+    }
 
     return NextResponse.json({ 
-      message: "Escaneo completado con éxito",
-      status: "success" 
+      success: true, 
+      message: `Escaneo completado. Se han añadido ${addedCount} mangas a la base de datos.` 
     });
 
   } catch (error: any) {
-    console.error("Error en la ruta de escaneo:", error);
-    return NextResponse.json(
-      { error: error.message || "Error interno del servidor" },
-      { status: 500 }
-    );
+    console.error("[Escáner] Error crítico:", error);
+    return NextResponse.json({ error: "Fallo en el servidor al escanear", details: error.message }, { status: 500 });
   }
 }

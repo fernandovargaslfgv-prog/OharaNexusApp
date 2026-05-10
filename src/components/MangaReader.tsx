@@ -30,6 +30,7 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
     const safeTitle = title.trim().toLowerCase();
     const safeChapter = chapter.trim();
     
+    // De momento leemos de localStorage para carga instantánea (modo offline)
     const savedPage = localStorage.getItem(`nexus-page-${safeTitle}-${safeChapter}`);
     if (savedPage) {
       const parsedPage = parseInt(savedPage, 10);
@@ -43,14 +44,12 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
   }, [title, chapter, images]);
 
   // 2. SINCRONIZACIÓN DE POSICIÓN (Solo al cambiar de modo o carga inicial)
-  // Hemos quitado [currentPage] de las dependencias para eliminar el "efecto imán"
   useEffect(() => {
     if (isLoaded && containerRef.current) {
       const container = containerRef.current;
       if (readMode === "horizontal") {
         container.scrollTo({ left: currentPage * container.clientWidth, behavior: 'instant' });
       } else {
-        // En vertical, calculamos la posición aproximada para no perdernos al cambiar
         const pageHeight = container.scrollHeight / (images.length || 1);
         container.scrollTo({ top: currentPage * pageHeight, behavior: 'instant' });
       }
@@ -58,12 +57,13 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readMode, isLoaded]); 
 
-  // 3. GUARDADO DE PROGRESO
+  // 3. GUARDADO DE PROGRESO (Caché Local + Sincronización con Servidor)
   useEffect(() => {
     if (!isLoaded || !images || images.length === 0) return;
     const titleKey = title.trim().toLowerCase();
     const safeChapter = chapter.trim();
     
+    // A) Guardado en Caché Local (Preparando el terreno para la APK / Modo Offline)
     localStorage.setItem(`nexus-page-${titleKey}-${safeChapter}`, currentPage.toString());
     localStorage.setItem(`nexus-last-${titleKey}`, safeChapter);
     localStorage.setItem("nexus-latest-title", title.trim()); 
@@ -77,9 +77,21 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
       const filteredHistory = history.filter((item: any) => item.title.toLowerCase() !== titleKey);
       localStorage.setItem("nexus-history", JSON.stringify([historyItem, ...filteredHistory].slice(0, 20)));
     } catch (e) {}
+
+    // B) NUEVO: Sincronización con el Servidor (SQLite)
+    fetch("/api/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title.trim(),
+        chapter: safeChapter,
+        page: currentPage
+      })
+    }).catch(err => console.error("Error guardando progreso en el servidor:", err));
+
   }, [currentPage, isLoaded, title, chapter, coverImage, images]);
 
-  // 4. DETECTOR DE PÁGINA (Solo para la barra de progreso)
+  // 4. DETECTOR DE PÁGINA
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (isZoomed) return;
     const target = e.currentTarget;
@@ -88,7 +100,6 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
     if (readMode === "horizontal") {
       index = Math.round(target.scrollLeft / target.clientWidth);
     } else {
-      // Cálculo más fluido para vertical sin forzar el imán
       const itemHeight = target.scrollHeight / images.length;
       index = Math.floor((target.scrollTop + (target.clientHeight / 2)) / itemHeight);
     }

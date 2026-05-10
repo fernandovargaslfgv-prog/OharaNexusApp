@@ -39,9 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
 # Ohara Nexus Specific
 cover_cache/
 mangas_data/
 .docker-compose.yml.swp
 *.cbz
 *.zip
+
+# Base de datos y migraciones (¡Muy importante!)
+nexus.db
+nexus.db-shm
+nexus.db-wal
+.drizzle/

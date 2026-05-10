@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import SearchableHome from "@/components/SearchableHome";
 import HeroBanner from "@/components/HeroBanner";
@@ -15,9 +15,12 @@ interface Manga {
 
 export default function Home() {
   const [mangaData, setMangaData] = useState<Manga[]>([]);
+  const [libraryData, setLibraryData] = useState<Manga[]>([]);
+  const [historyData, setHistoryData] = useState<Manga[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState("home"); 
 
+  // 1. CARGA INICIAL
   useEffect(() => {
     const fetchMangaData = async () => {
       try {
@@ -27,14 +30,16 @@ export default function Home() {
         const data = await response.json();
         
         const formattedData: Manga[] = Array.isArray(data) ? data.map((m: any) => ({
-          title: m.title || "Sin título",
-          author: m.author || "Nexus Library",
-          image: m.image || m.cover || "/placeholder-manga.jpg",
-          latestChapter: m.latestChapter || "Cap. 1"
+          title: m?.title || "Sin título",
+          author: m?.author || "Nexus Library",
+          // ESTA ES LA LÍNEA MÁGICA: Ignoramos la base de datos y forzamos la URL correcta
+          image: m?.title ? `/api/cover?series=${encodeURIComponent(m.title)}` : "/placeholder-manga.jpg",
+          latestChapter: m?.latestChapter || "Cap. 1"
         })) : [];
 
         setMangaData(formattedData);
-      } catch (err: any) {
+      } catch (err) {
+        console.error("Error cargando mangas:", err);
         setMangaData([]);
       } finally {
         setLoading(false);
@@ -43,46 +48,56 @@ export default function Home() {
     fetchMangaData();
   }, []);
 
-  const libraryData = useMemo(() => {
-    if (typeof window === "undefined" || !Array.isArray(mangaData)) return [];
-    try {
-      const rawFavs = localStorage.getItem("manga-favorites");
-      if (!rawFavs) return [];
-      const favsArray = JSON.parse(rawFavs);
-      if (!Array.isArray(favsArray)) return [];
-      
-      const favTitles = new Set(favsArray.map((m: any) => m?.title?.toLowerCase().trim()).filter(Boolean));
-      return mangaData.filter(m => favTitles.has(m.title.toLowerCase().trim()));
-    } catch (e) { return []; }
-  }, [mangaData]);
+  // 2. CARGA DE FAVORITOS (BLINDADA)
+  useEffect(() => {
+    if (currentView === "library" && mangaData.length > 0) {
+      fetch("/api/favorites")
+        .then(res => res.json())
+        .then(favTitles => {
+          if (!Array.isArray(favTitles)) return setLibraryData([]);
+          
+          const filtered = mangaData.filter(m => {
+            if (!m?.title) return false;
+            return favTitles.some((fav: any) => 
+              typeof fav === 'string' && 
+              fav.toLowerCase().trim() === m.title.toLowerCase().trim()
+            );
+          });
+          setLibraryData(filtered);
+        })
+        .catch(() => setLibraryData([]));
+    }
+  }, [currentView, mangaData]);
 
-  const historyData = useMemo(() => {
-    if (typeof window === "undefined" || !Array.isArray(mangaData)) return [];
-    try {
-      const history = localStorage.getItem("nexus-history");
-      if (!history) return [];
-      const parsedHistory = JSON.parse(history);
-      if (!Array.isArray(parsedHistory)) return [];
-      
-      const results: Manga[] = [];
-      
-      parsedHistory.forEach((item: any) => {
-        if (!item?.title) return;
-        const fullInfo = mangaData.find(m => 
-          m.title.toLowerCase().trim() === item.title.toLowerCase().trim()
-        );
-        
-        results.push({
-          title: item.title,
-          image: fullInfo?.image || item.image || "/placeholder-manga.jpg",
-          author: fullInfo?.author || "Nexus Library",
-          latestChapter: fullInfo?.latestChapter || "Cap. Reciente"
-        });
-      });
-      
-      return results;
-    } catch (e) { return []; }
-  }, [mangaData]);
+  // 3. CARGA DE HISTORIAL (BLINDADA)
+  useEffect(() => {
+    if (currentView === "history" && mangaData.length > 0) {
+      fetch("/api/history") 
+        .then(res => res.json())
+        .then(historyItems => {
+          if (!Array.isArray(historyItems)) return setHistoryData([]);
+
+          const results: Manga[] = [];
+          historyItems.forEach((item: any) => {
+            if (!item || typeof item.mangaTitle !== 'string') return;
+            
+            const fullInfo = mangaData.find(m => 
+              typeof m?.title === 'string' &&
+              m.title.toLowerCase().trim() === item.mangaTitle.toLowerCase().trim()
+            );
+            
+            results.push({
+              title: item.mangaTitle,
+              image: fullInfo?.image || "/placeholder-manga.jpg",
+              author: fullInfo?.author || "Nexus Library",
+              latestChapter: item.lastChapter || "Cap. Reciente"
+            });
+          });
+          setHistoryData(results);
+        })
+        .catch(() => setHistoryData([]));
+    }
+  }, [currentView, mangaData]);
 
   if (loading) return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center font-black uppercase">
