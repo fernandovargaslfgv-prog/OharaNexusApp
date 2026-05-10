@@ -1,92 +1,101 @@
-"use client";
-
-import { useState, useEffect, use } from "react";
+import fs from "fs";
+import path from "path";
 import Link from "next/link";
-import Navbar from "@/components/Navbar";
+import FavoriteButton from "@/components/FavoriteButton";
+import LastReadBadge from "@/components/LastReadBadge";
 
-interface Chapter {
-  name: string;
-}
+type MangaLobbyProps = {
+  params: Promise<{ title: string }>;
+};
 
-interface MangaDetails {
-  title: string;
-  chapters: Chapter[];
-  image?: string;
-}
+// Rutas configuradas en docker-compose
+const MANGA_ROOT = process.env.MANGA_PATH || "/app/mangas_data";
+// Ampliamos extensiones para coincidir con el indexador
+const ALLOWED_EXTENSIONS = new Set([".cbz", ".cbr", ".pdf", ".epub", ".zip"]);
 
-export default function MangaPage({ params }: { params: Promise<{ title: string }> }) {
-  // Desenvolvemos los params (necesario en versiones nuevas de Next.js)
-  const resolvedParams = use(params);
-  const decodedTitle = decodeURIComponent(resolvedParams.title);
+export default async function MangaLobbyPage({ params }: MangaLobbyProps) {
+  const { title } = await params;
+  const decodedTitle = decodeURIComponent(title);
   
-  const [manga, setManga] = useState<MangaDetails | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 1. Buscamos la carpeta real con tolerancia a mayúsculas/espacios
+  let actualFolderName = decodedTitle;
+  try {
+    const folders = await fs.promises.readdir(MANGA_ROOT);
+    const match = folders.find(f => 
+      f.trim().toLowerCase() === decodedTitle.trim().toLowerCase()
+    );
+    if (match) actualFolderName = match;
+  } catch (e) {
+    console.error("Error leyendo directorio raíz:", e);
+  }
 
-  useEffect(() => {
-    const fetchChapters = async () => {
-      try {
-        setLoading(true);
-        // Llamamos a tu API de capítulos pasando el título
-        const response = await fetch(`/api/chapters?title=${encodeURIComponent(decodedTitle)}`);
-        if (!response.ok) throw new Error("No se encontraron capítulos");
-        const data = await response.json();
-        
-        setManga({
-          title: decodedTitle,
-          chapters: Array.isArray(data) ? data : [],
-          image: data[0]?.cover // Opcional: si tu API devuelve la portada
-        });
-      } catch (err) {
-        console.error(err);
-        setManga({ title: decodedTitle, chapters: [] });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const folderPath = path.join(MANGA_ROOT, actualFolderName);
 
-    fetchChapters();
-  }, [decodedTitle]);
+  // 2. Leemos los capítulos (Archivos soportados O carpetas)
+  let chapters: string[] = [];
+  try {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    chapters = entries
+      .filter(ent => {
+        if (ent.name.startsWith('.')) return false; // Ignorar archivos ocultos
+        const ext = path.extname(ent.name).toLowerCase();
+        // Aceptamos si es una carpeta O si es un archivo con extensión permitida
+        return ent.isDirectory() || ALLOWED_EXTENSIONS.has(ext);
+      })
+      .map(ent => ent.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  } catch (e) {
+    console.error("Error leyendo carpeta de capítulos:", e);
+  }
 
-  if (loading) return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center italic font-black">
-       <span className="text-[10px] tracking-widest animate-pulse uppercase">Buscando Capítulos...</span>
-    </main>
-  );
+  const mainCover = chapters.length > 0 
+    ? `/api/cover?series=${encodeURIComponent(actualFolderName)}&chapter=${encodeURIComponent(chapters[0])}`
+    : "";
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <Navbar />
-
-      <div className="pt-[calc(env(safe-area-inset-top,0px)+60px)] px-4">
-        {/* CABECERA */}
-        <div className="mb-8">
-          <Link href="/" className="text-[10px] font-black uppercase text-zinc-500 mb-2 block">← Volver</Link>
-          <h1 className="text-2xl font-black italic uppercase leading-none tracking-tighter">{decodedTitle}</h1>
-          <p className="text-[10px] font-bold text-red-600 uppercase mt-1 tracking-widest">
-            {manga?.chapters.length || 0} Capítulos disponibles
-          </p>
+    <main className="min-h-screen bg-black text-white pb-24 md:pb-10">
+      <section className="relative w-full h-[400px] sm:h-[500px] overflow-hidden bg-black">
+        <div className="absolute inset-0 z-0">
+          <img src={mainCover} className="w-full h-full object-cover opacity-60 brightness-[0.3] blur-[2px] scale-105" alt="" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
         </div>
-
-        {/* LISTA DE CAPÍTULOS */}
-        <div className="flex flex-col gap-2 pb-20">
-          {manga?.chapters.map((cap, index) => (
-            <Link 
-              key={index}
-              href={`/reader/${encodeURIComponent(decodedTitle)}/${encodeURIComponent(cap.name)}`}
-              className="bg-zinc-900/50 border border-white/5 p-4 rounded-xl flex justify-between items-center active:scale-[0.98] transition-transform"
-            >
-              <span className="text-xs font-black uppercase tracking-tight">{cap.name}</span>
-              <span className="text-[10px] font-black text-zinc-600">LEER →</span>
-            </Link>
-          ))}
-          
-          {manga?.chapters.length === 0 && (
-            <div className="text-center py-20 text-zinc-700 text-[10px] font-black uppercase">
-              No se han encontrado capítulos en la carpeta.
-            </div>
-          )}
+        <div className="relative z-10 max-w-6xl mx-auto h-full px-6 flex flex-col justify-end pb-16 sm:pb-28">
+           <h1 className="text-4xl sm:text-7xl font-black uppercase italic tracking-tighter mb-6 text-white drop-shadow-2xl leading-none">
+             {actualFolderName}
+           </h1>
+           <FavoriteButton title={actualFolderName} cover={mainCover} />
         </div>
-      </div>
+      </section>
+
+      <section className="relative z-30 bg-[#0a0a0a] rounded-t-[40px] -mt-10 border-t border-white/5">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-16 pb-20">
+          <div className="flex items-center justify-between border-b border-white/5 pb-6 mb-8 px-2">
+            <h2 className="text-sm sm:text-xl font-black uppercase italic tracking-tighter text-zinc-400">Lista de capítulos</h2>
+            <span className="bg-zinc-900 px-3 py-1 rounded-full text-zinc-500 text-[10px] font-black uppercase">{chapters.length} Disponibles</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            {chapters.map((chapter, index) => (
+                <Link 
+                  key={chapter} 
+                  href={`/manga/${encodeURIComponent(actualFolderName)}/${encodeURIComponent(chapter)}`} 
+                  className="group flex items-center gap-4 p-4 rounded-2xl hover:bg-white/[0.03] transition-all border border-transparent hover:border-white/5"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-red-600 text-[10px] font-black uppercase">#{index + 1}</span>
+                      <LastReadBadge title={actualFolderName} chapter={chapter} />
+                    </div>
+                    <h3 className="text-sm sm:text-lg font-bold text-zinc-300 group-hover:text-white truncate">
+                      {chapter.replace(/\.[^/.]+$/, "")}
+                    </h3>
+                  </div>
+                  <div className="pr-4 text-zinc-700 font-black text-[10px]">LEER →</div>
+                </Link>
+            ))}
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
