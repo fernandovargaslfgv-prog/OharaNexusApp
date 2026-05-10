@@ -12,33 +12,34 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* --- RESET Y CONTROL DE SCROLL AGRESIVO --- */
-/* Esto soluciona que el scroll solo funcione en la barra de abajo */
+/* --- RESET TOTAL PARA ANDROID --- */
 html, body {
   background-color: #000000;
   color: #ffffff;
   margin: 0;
   padding: 0;
-  overflow-x: hidden !important;
-  /* Forzamos el scroll vertical en todo el documento */
-  overflow-y: auto !important;
-  height: auto !important;
-  min-height: 100vh;
-  /* VITAL: Obliga al navegador a priorizar el movimiento vertical del dedo */
-  touch-action: pan-y !important;
+  width: 100%;
+  height: 100%;
+  /* IMPORTANTE: Permitimos que el contenido desborde horizontalmente 
+     para que el carril del lector funcione */
+  overflow-x: visible !important; 
+  overflow-y: auto;
+  /* Permitimos que el navegador gestione los gestos de forma natural */
+  touch-action: auto !important; 
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
 }
 
-/* Aplicamos touch-action a todos los contenedores para que ninguno "robe" el gesto vertical */
-main, section, div, .snap-x, .overflow-x-auto {
-  touch-action: pan-y !important;
+/* Ocultar barras de scroll pero permitir el funcionamiento */
+.hide-scrollbar::-webkit-scrollbar { 
+  display: none; 
+}
+.hide-scrollbar { 
+  -ms-overflow-style: none; 
+  scrollbar-width: none; 
 }
 
-/* Ocultar barras de scroll estéticas */
-.scrollbar-hide::-webkit-scrollbar { display: none; }
-.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-
-/* --- OPTIMIZACIÓN DEL LECTOR (Full Width) --- */
+/* --- OPTIMIZACIÓN DEL LECTOR --- */
 .reader-mode {
   width: 100vw !important;
   max-width: 100vw !important;
@@ -52,7 +53,7 @@ main, section, div, .snap-x, .overflow-x-auto {
   display: block !important;
 }
 
-/* --- EL TRUCO DEL BUSCADOR (Móvil vs Web) --- */
+/* --- TRUCO DEL BUSCADOR (Móvil vs Web) --- */
 .mobile-hide-search input {
   display: none !important;
 }
@@ -63,7 +64,7 @@ main, section, div, .snap-x, .overflow-x-auto {
   }
 }
 
-/* --- ESTILO PARA BÚSQUEDA EN LISTA (Sin imágenes) --- */
+/* --- ESTILO PARA BÚSQUEDA EN LISTA --- */
 .search-list-item {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   padding: 1rem 0.5rem;
@@ -77,7 +78,7 @@ main, section, div, .snap-x, .overflow-x-auto {
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* --- ESPACIADO PARA LA BARRA INFERIOR --- */
+/* Espaciado para la barra inferior */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }

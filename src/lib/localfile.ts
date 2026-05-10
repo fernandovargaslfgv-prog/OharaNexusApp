@@ -1,77 +1,34 @@
-import fs from 'fs';
-import path from 'path';
-// @ts-ignore
-import AdmZip from 'adm-zip';
-import { XMLParser } from 'fast-xml-parser';
+import fs from "fs";
+import path from "path";
+import AdmZip from "adm-zip";
+import * as unrar from "node-unrar-js";
 
-// Esta es la variable maestra que detecta si estamos en Docker o Local
-export const MANGAS_PATH = process.env.MANGA_PATH || '/home/luis/mangas/General/mangas';
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
-export async function fetchKavitaLibrary() {
-  try {
-    const seriesFolders = fs.readdirSync(MANGAS_PATH);
-    const library = seriesFolders.map(folderName => {
-      const folderPath = path.join(MANGAS_PATH, folderName);
-      if (fs.lstatSync(folderPath).isDirectory()) {
-        const files = fs.readdirSync(folderPath).filter(f => f.endsWith('.cbz'));
-        const stats = fs.statSync(folderPath);
-        return {
-          id: folderName,
-          title: folderName,
-          chapter: `${files.length} capítulos`,
-          image: `/api/cover?series=${encodeURIComponent(folderName)}`,
-          category: "Manga",
-          lastModified: stats.mtime
-        };
-      }
-      return null;
-    }).filter(Boolean);
-    library.sort((a, b) => new Date(b!.lastModified).getTime() - new Date(a!.lastModified).getTime());
-    return library;
-  } catch (error) {
-    console.error("Error leyendo carpetas locales:", error);
-    return [];
+export async function getMangaImages(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`El archivo no existe: ${filePath}`);
   }
-}
 
-export async function fetchMangaLibrary() {
-  try {
-    const seriesFolders = fs.readdirSync(MANGAS_PATH);
-    const parser = new XMLParser();
-    const library = await Promise.all(
-      seriesFolders.map(async (folderName) => {
-        const folderPath = path.join(MANGAS_PATH, folderName);
-        if (!fs.lstatSync(folderPath).isDirectory()) return null;
-        const cbzFiles = fs.readdirSync(folderPath).filter(f => f.endsWith('.cbz'));
-        if (cbzFiles.length === 0) return null;
-
-        const firstCbzPath = path.join(folderPath, cbzFiles[0]);
-        let author = 'Desconocido';
-        try {
-          const zip = new AdmZip(firstCbzPath);
-          const comicInfoEntry = zip.getEntries().find((entry: any) =>
-            entry.entryName.toLowerCase() === 'comicinfo.xml'
-          );
-          if (comicInfoEntry) {
-            const xmlContent = zip.readAsText(comicInfoEntry);
-            const parsedXml = parser.parse(xmlContent);
-            if (parsedXml?.ComicInfo?.Writer) author = parsedXml.ComicInfo.Writer;
-          }
-        } catch (error) {
-          console.warn(`Error leyendo ComicInfo.xml para ${folderName}:`, error);
-        }
-
-        return {
-          title: folderName,
-          author: author,
-          image: `/api/cover?series=${encodeURIComponent(folderName)}`,
-          latestChapter: cbzFiles.length
-        };
-      })
-    );
-    return library.filter(Boolean);
-  } catch (error) {
-    console.error("Error leyendo biblioteca de manga:", error);
-    return [];
+  if (ext === ".cbz" || ext === ".zip") {
+    const zip = new AdmZip(filePath);
+    return zip.getEntries()
+      .filter(e => !e.isDirectory && IMAGE_EXTENSIONS.includes(path.extname(e.name).toLowerCase()))
+      .sort((a, b) => a.entryName.localeCompare(b.entryName, undefined, { numeric: true }))
+      .map(e => e.name); // MAGIA: Solo devolvemos los nombres, 0 peso.
   }
+
+  if (ext === ".cbr") {
+    const data = Uint8Array.from(fs.readFileSync(filePath)).buffer;
+    const extractor = await unrar.createExtractorFromData({ data });
+    const list = extractor.getFileList();
+    return Array.from(list.fileHeaders)
+      .map(h => h.name)
+      .filter(name => IMAGE_EXTENSIONS.includes(path.extname(name).toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); // MAGIA: Solo nombres
+  }
+
+  throw new Error("Formato no soportado");
 }
