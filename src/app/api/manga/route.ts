@@ -1,32 +1,35 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../db"; 
-import { mangas } from "../../../db/schema";
+import { db } from "@/db";
+import { mangas } from "@/db/schema";
 import { desc } from "drizzle-orm";
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    console.log("📡 Consultando base de datos para la Home...");
-    
-    // 1. Añadimos 'path' a la selección, es vital para las portadas y los links
-    const allMangas = await db.select({
-      id: mangas.id,
-      title: mangas.title,
-      author: mangas.author,
-      path: mangas.path, // <--- CAMBIO CLAVE
-    }).from(mangas).orderBy(desc(mangas.updatedAt)); // Ordenamos por actualización
+    // 1. Obtenemos todos los mangas con todas sus columnas (incluyendo AniList)
+    const allMangas = await db.query.mangas.findMany({
+      orderBy: [desc(mangas.id)]
+    });
 
-    // 2. Formateamos los datos para que la Home los entienda perfectamente
-    const mangaData = allMangas.map((m) => ({
-      id: m.id,
-      title: m.title,
-      path: m.path,
-      author: m.author || "Nexus Library",
-      // CORRECCIÓN: Usamos 'series' con el 'path' de la carpeta para la portada
-      image: `/api/cover?series=${encodeURIComponent(m.path)}`, 
-      latestChapter: "Cap. Reciente", 
-    }));
+    // 2. Mapeamos los datos para que el frontend reciba lo que necesita
+    const mangaData = allMangas.map((m) => {
+      const localCover = `/api/cover?series=${encodeURIComponent(m.path)}`;
+      
+      return {
+        id: m.id,
+        title: m.title || m.path, // Título oficial de AniList o nombre de carpeta
+        path: m.path,
+        author: m.author || "Nexus Library",
+        // ENVIAMOS AMBOS: El frontend decidirá cuál es mejor
+        coverImage: m.coverImage, 
+        bannerImage: m.bannerImage,
+        // Imagen por defecto (para compatibilidad con el Grid actual)
+        image: m.coverImage || localCover, 
+        latestChapter: "Serie", // Aquí podrías luego cruzar con la tabla 'history'
+        genres: m.genres ? JSON.parse(m.genres) : []
+      };
+    });
 
     return NextResponse.json(mangaData);
   } catch (error: any) {

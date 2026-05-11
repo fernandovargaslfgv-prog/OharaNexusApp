@@ -5,145 +5,177 @@ import FavoriteButton from "@/components/FavoriteButton";
 import LastReadBadge from "@/components/LastReadBadge";
 import { db } from "@/db";
 import { mangas } from "@/db/schema";
-import { eq, or } from "drizzle-orm"; // Importamos 'or'
+import { eq, or } from "drizzle-orm";
 
 type MangaLobbyProps = {
   params: Promise<{ title: string }>;
 };
 
 const MANGA_ROOT = process.env.MANGA_PATH || "/app/mangas_data";
-const ALLOWED_EXTENSIONS = new Set([".cbz", ".cbr", ".pdf", ".epub", ".zip"]);
 
 export default async function MangaLobbyPage({ params }: MangaLobbyProps) {
   const { title } = await params;
   const decodedTitle = decodeURIComponent(title);
   
-  // 1. BÚSQUEDA INTELIGENTE: Buscamos por el PATH (carpeta) o por el TÍTULO real
+  // Buscamos en la DB por path o por título oficial
   const mangaData = await db.query.mangas.findFirst({
-    where: or(
-      eq(mangas.path, decodedTitle),
-      eq(mangas.title, decodedTitle)
-    ),
+    where: or(eq(mangas.path, decodedTitle), eq(mangas.title, decodedTitle)),
   });
 
-  // 2. Determinar la carpeta física real (Priorizamos lo que diga la DB)
   const actualFolderName = mangaData?.path || decodedTitle;
   const folderPath = path.join(MANGA_ROOT, actualFolderName);
 
-  // 3. Leemos capítulos (Usando la carpeta física confirmada)
+  // Parseamos los géneros si existen (vienen como string JSON desde AniList)
+  const genresArray = mangaData?.genres ? JSON.parse(mangaData.genres) : [];
+
   let chapters: string[] = [];
-  try {
-    if (fs.existsSync(folderPath)) {
-      const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-      chapters = entries
-        .filter(ent => {
-          if (ent.name.startsWith('.')) return false;
-          const ext = path.extname(ent.name).toLowerCase();
-          return ent.isDirectory() || ALLOWED_EXTENSIONS.has(ext);
-        })
-        .map(ent => ent.name)
-        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-    }
-  } catch (e) {
-    console.error("Error leyendo carpeta de capítulos:", e);
+  if (fs.existsSync(folderPath)) {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    chapters = entries
+      .filter(ent => !ent.name.startsWith('.') && (ent.isDirectory() || /\.(cbz|zip|cbr)$/i.test(path.extname(ent.name))))
+      .map(ent => ent.name)
+      // Orden natural para capítulos (1, 2, 10 en lugar de 1, 10, 2)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
   }
 
-  // La portada debe usar siempre el nombre de la CARPETA (path)
-  const mainCover = `/api/cover?series=${encodeURIComponent(actualFolderName)}`;
+  // Configuración de imágenes: Prioridad Metadatos > Local
+  const localCover = `/api/cover?series=${encodeURIComponent(actualFolderName)}`;
+  const mainPoster = mangaData?.coverImage || localCover;
+  const bannerImg = mangaData?.bannerImage || localCover;
 
   return (
-    <main className="min-h-screen bg-black text-white pb-24">
-      {/* PANEL SUPERIOR */}
-      <section className="relative w-full pt-12 pb-20 overflow-hidden">
+    <main className="min-h-screen bg-black text-white pb-24 font-sans">
+      
+      {/* --- SECCIÓN HEADER: EL BANNER ESPECTACULAR --- */}
+      <section className="relative w-full pt-28 pb-20 overflow-hidden">
+        {/* Fondo inmersivo con Banner */}
         <div className="absolute inset-0 z-0">
-          <img src={mainCover} className="w-full h-full object-cover opacity-30 blur-xl scale-110" alt="" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black to-black" />
+          <img 
+            src={bannerImg} 
+            className="w-full h-full object-cover opacity-30 blur-2xl scale-110" 
+            alt="" 
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/80 to-black" />
         </div>
 
-        <div className="relative z-10 max-w-6xl mx-auto px-6 flex flex-col md:flex-row gap-8 items-start">
+        <div className="relative z-10 max-w-6xl mx-auto px-6 flex flex-col md:flex-row gap-10 items-end">
+          {/* Poster Principal con Sombra Pro */}
           <div className="flex-shrink-0 mx-auto md:mx-0">
             <img 
-              src={mainCover} 
-              className="w-56 h-80 sm:w-64 sm:h-96 object-cover rounded-xl shadow-2xl border border-white/10"
-              alt={mangaData?.title || actualFolderName}
+              src={mainPoster} 
+              className="w-64 h-92 object-cover rounded-2xl shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-white/10 transition-transform duration-700 hover:scale-[1.02]" 
+              alt={mangaData?.title} 
             />
           </div>
 
+          {/* Bloque de Información */}
           <div className="flex-1 text-center md:text-left">
-            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-4">
-              <span className="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded uppercase">
-                {mangaData?.type || "Manga"}
-              </span>
-              <span className="text-zinc-400 text-xs font-bold uppercase underline">
-                {mangaData?.status || "Estado desconocido"}
-              </span>
+            {/* Categorías y Estado */}
+            <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-5">
+              {genresArray.map((genre: string) => (
+                <span key={genre} className="text-[9px] font-black uppercase tracking-[0.2em] bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-md border border-white/10 text-zinc-300">
+                  {genre}
+                </span>
+              ))}
+              {mangaData?.status && (
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-red-600/20 px-3 py-1.5 rounded-md border border-red-600/30 text-red-500 italic">
+                  {mangaData.status}
+                </span>
+              )}
             </div>
 
-            <h1 className="text-4xl sm:text-6xl font-black uppercase italic tracking-tighter leading-none mb-2">
+            <h1 className="text-5xl md:text-7xl font-black uppercase italic tracking-tighter mb-2 leading-none drop-shadow-2xl">
               {mangaData?.title || actualFolderName}
             </h1>
             
-            <p className="text-xl text-zinc-400 font-medium mb-6 italic">
+            <p className="text-zinc-500 font-bold mb-6 italic text-lg tracking-tight">
               {mangaData?.author || "Nexus Library"}
             </p>
 
-            <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-8">
-              {mangaData?.genres?.split(',').map((genre) => (
-                <span key={genre} className="bg-zinc-900 border border-white/10 px-3 py-1 rounded-full text-xs font-bold text-zinc-300 uppercase">
-                  {genre.trim()}
-                </span>
-              ))}
-            </div>
-
-            <div className="max-w-2xl">
-              <h3 className="text-xs font-black uppercase text-zinc-500 mb-2">Argumento</h3>
-              <p className="text-zinc-300 text-sm sm:text-base leading-relaxed">
-                {mangaData?.description || "Sin descripción disponible en metadatos."}
+            {/* Caja de Sinopsis */}
+            <div className="max-w-3xl bg-white/5 backdrop-blur-md p-6 rounded-2xl border border-white/5 mb-8 shadow-inner">
+              <p className="text-zinc-300 text-sm leading-relaxed line-clamp-4 hover:line-clamp-none transition-all duration-700 cursor-help">
+                {mangaData?.description || "Buscando información detallada en los archivos del sistema..."}
               </p>
             </div>
 
-            <div className="mt-8 flex justify-center md:justify-start">
-              <FavoriteButton title={actualFolderName} cover={mainCover} />
+            <div className="flex justify-center md:justify-start">
+              <FavoriteButton title={actualFolderName} cover={localCover} />
             </div>
           </div>
         </div>
       </section>
 
-      {/* LISTA DE CAPÍTULOS */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between border-b border-white/10 pb-6 mb-4">
-          <h2 className="text-xl font-black uppercase italic tracking-tighter">Capítulos</h2>
-          <span className="text-zinc-500 text-[10px] font-black uppercase">{chapters.length} Archivos</span>
+      {/* --- LISTA DE CAPÍTULOS: DISEÑO LIMPIO --- */}
+      <section className="max-w-5xl mx-auto px-6 mt-16">
+        <div className="flex items-center justify-between border-b border-white/5 pb-6 mb-8">
+          <div className="flex items-center gap-4">
+            <div className="w-1.5 h-8 bg-red-600 rounded-full shadow-[0_0_15px_rgba(220,38,38,0.5)]" />
+            <h2 className="text-3xl font-black uppercase italic tracking-tighter">Índice de Archivos</h2>
+          </div>
+          <span className="text-[10px] font-black text-zinc-500 bg-zinc-900/80 border border-white/5 px-5 py-2.5 rounded-full uppercase tracking-[0.3em]">
+            {chapters.length} Volúmenes
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-1">
-          {chapters.map((chapter, index) => {
-            const chapterCoverUrl = `/api/cover?series=${encodeURIComponent(actualFolderName)}&chapter=${encodeURIComponent(chapter)}`;
+        <div className="grid grid-cols-1 gap-4">
+          {chapters.map((chapter) => {
+            // Limpieza visual: evita que el nombre del manga se repita en el título del capítulo
+            let displayTitle = chapter.replace(/\.[^/.]+$/, ""); 
+            const mangaName = mangaData?.title || actualFolderName;
+            const regex = new RegExp(mangaName, 'gi');
+            displayTitle = displayTitle.replace(regex, '').replace(/^[\s-_]+|[\s-_]+$/g, '').trim();
             
+            if (!displayTitle) displayTitle = chapter.replace(/\.[^/.]+$/, "");
+
             return (
               <Link 
                 key={chapter} 
                 href={`/manga/${encodeURIComponent(actualFolderName)}/${encodeURIComponent(chapter)}`} 
-                className="group flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-900/50 transition-all border border-transparent hover:border-white/5"
+                className="group flex items-center gap-6 p-5 rounded-3xl bg-zinc-900/30 hover:bg-zinc-900/80 transition-all duration-300 border border-white/5 hover:border-red-600/40 shadow-sm"
               >
-                <div className="relative w-20 h-14 sm:w-28 sm:h-16 flex-shrink-0 overflow-hidden rounded-lg bg-zinc-900 border border-white/5">
-                  <img src={chapterCoverUrl} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                {/* Miniatura de capítulo */}
+                <div className="w-16 h-24 bg-zinc-900 rounded-xl overflow-hidden flex-shrink-0 border border-white/10 relative">
+                  <img 
+                    src={`/api/cover?series=${encodeURIComponent(actualFolderName)}&chapter=${encodeURIComponent(chapter)}`} 
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                    alt="" 
+                  />
+                  <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors duration-500" />
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-red-600 text-[10px] font-black">#{index + 1}</span>
+                  <div className="mb-2">
                     <LastReadBadge title={actualFolderName} chapter={chapter} />
                   </div>
-                  <h3 className="text-sm sm:text-base font-bold text-zinc-300 group-hover:text-white truncate">
-                    {chapter.replace(/\.[^/.]+$/, "")}
+                  <h3 className="font-black text-zinc-300 group-hover:text-white uppercase text-lg tracking-tight transition-colors truncate">
+                    {displayTitle}
                   </h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest">Type: {chapter.split('.').pop()}</span>
+                    <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                    <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest">FileSystem Local</span>
+                  </div>
+                </div>
+
+                {/* Acción lateral */}
+                <div className="flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
+                   <span className="hidden sm:block text-red-600 text-[10px] font-black uppercase tracking-widest italic">Leer ahora</span>
+                   <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)]">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                   </div>
                 </div>
               </Link>
             );
           })}
         </div>
       </section>
+
+      {/* CSS Utility para ocultar el scrollbar en los géneros pero permitir scroll horizontal */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}} />
     </main>
   );
 }

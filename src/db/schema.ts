@@ -31,18 +31,21 @@ export const mangas = sqliteTable("mangas", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   libraryId: integer("library_id")
     .references(() => libraries.id, { onDelete: "cascade" }),
-  title: text("title").notNull(), // Título de la carpeta o del XML
+  title: text("title").notNull(),
   path: text("path").notNull().unique(),
-  cover: text("cover"),
+  cover: text("cover"), // Portada local extraída del archivo
   
-  // Metadatos extendidos (Manga Plus Style)
+  // Metadatos extendidos (Sincronizados con AniList)
+  anilistId: integer("anilist_id"),      // ID único de AniList
+  bannerImage: text("banner_image"),    // Arte horizontal para el Hero
+  coverImage: text("cover_image"),      // Portada oficial en alta resolución
   author: text("author").default("Autor desconocido"),
   artist: text("artist"),
-  description: text("description"), // Sinopsis / Argumento
-  genres: text("genres"), // Guardaremos "Acción, Aventura, Seinen"
-  status: text("status").default("Desconocido"), // Ej: Ongoing, Completed
+  description: text("description"),     // Sinopsis oficial
+  genres: text("genres"),               // "Acción, Aventura, Seinen"
+  status: text("status").default("Desconocido"), 
   year: integer("year"),
-  type: text("type").default("Manga"), // Manga, Manhwa, Comic
+  type: text("type").default("Manga"), 
   
   lastScan: integer("last_scan"), 
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`CURRENT_TIMESTAMP`),
@@ -54,10 +57,10 @@ export const chapters = sqliteTable("chapters", {
   mangaId: integer("manga_id")
     .notNull()
     .references(() => mangas.id, { onDelete: "cascade" }),
-  number: text("number").notNull(), // El número del cap (ej: "1", "10.5")
-  title: text("title"), // El nombre del capítulo (ej: "Aquel día") extraído del XML
-  path: text("path").notNull(), // Ruta al archivo .cbz / .zip
-  cover: text("cover"), // Miniatura opcional del capítulo
+  number: text("number").notNull(), 
+  title: text("title"), 
+  path: text("path").notNull(), 
+  cover: text("cover"), 
   createdAt: integer("created_at").default(sql`(strftime('%s', 'now'))`),
 });
 
@@ -82,7 +85,7 @@ export const history = sqliteTable("history", {
   mangaId: integer("manga_id")
     .notNull()
     .references(() => mangas.id, { onDelete: "cascade" }),
-  lastChapter: text("last_chapter").notNull(), // Guardamos el número o el ID del capítulo
+  lastChapter: text("last_chapter").notNull(), 
   lastPage: integer("last_page").default(0),
   updatedAt: integer("updated_at").default(sql`(strftime('%s', 'now'))`),
 });

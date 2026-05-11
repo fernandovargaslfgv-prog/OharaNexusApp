@@ -1,83 +1,85 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-// @ts-ignore
-import AdmZip from "adm-zip";
-import { XMLParser } from "fast-xml-parser";
 import { db } from "@/db";
-import { mangas, libraries } from "@/db/schema";
+import { mangas } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { fetchAnilistMetadata } from "@/lib/anilist";
 
 const MANGA_ROOT = process.env.MANGA_PATH || "/app/mangas_data";
-const parser = new XMLParser();
+
+// Función auxiliar para limpiar el nombre antes de buscar en AniList
+function cleanNameForSearch(name: string) {
+  return name
+    .replace(/\(.*\)/g, "") // Quita (2023), (1997), etc.
+    .replace(/\[.*\]/g, "") // Quita [Digital], [CBR], etc.
+    .replace(/[_-]/g, " ")  // Cambia guiones y barras bajas por espacios
+    .trim();
+}
 
 export async function GET() {
   try {
-    // 1. Asegurar Librería
-    let library = await db.query.libraries.findFirst();
-    if (!library) {
-      const newLib = await db.insert(libraries).values({ name: "Principal", path: MANGA_ROOT }).returning();
-      library = newLib[0];
-    }
-
-    // 2. LEER SOLO CARPETAS (Esto evita que los archivos .cbz salgan en el inicio)
     const folders = fs.readdirSync(MANGA_ROOT, { withFileTypes: true })
       .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('.'));
 
+    console.log(`🚀 Iniciando Escaneo Profundo para ${folders.length} carpetas...`);
+
     for (const folder of folders) {
-      const mangaFolderName = folder.name; // Ej: "Berserk"
-      const fullPath = path.join(MANGA_ROOT, mangaFolderName);
-      
-      const files = fs.readdirSync(fullPath)
-        .filter(f => /\.(cbz|zip|cbr)$/i.test(f))
-        .sort();
+      const folderName = folder.name;
+      const cleanSearchTitle = cleanNameForSearch(folderName);
 
-      let metadata = {
-        title: mangaFolderName, // Por defecto el nombre de la carpeta
-        author: "Autor desconocido",
-        description: "Sin descripción.",
-        genres: ""
-      };
+      const existing = await db.query.mangas.findFirst({
+        where: (mangas, { eq }) => eq(mangas.path, folderName)
+      });
 
-      // Intentar leer ComicInfo del primer archivo
-      if (files.length > 0) {
-        try {
-          const zip = new AdmZip(path.join(fullPath, files[0]));
-          const xmlEntry = zip.getEntry("ComicInfo.xml");
-          if (xmlEntry) {
-            const info = parser.parse(xmlEntry.getData().toString("utf8")).ComicInfo;
-            metadata.title = info.Title || info.Series || mangaFolderName;
-            metadata.author = info.Writer || info.Author || "Desconocido";
-            metadata.description = info.Summary || "Sin descripción.";
-            metadata.genres = info.Genre || "";
+      // CONDICIÓN: Si no existe O si existe pero la descripción es la de por defecto
+      const needsMetadata = !existing || !existing.description || existing.description.includes("Sin descripción disponible");
+
+      if (needsMetadata) {
+        console.log(`🔍 Buscando en AniList: "${cleanSearchTitle}" (Carpeta: ${folderName})`);
+        
+        const meta = await fetchAnilistMetadata(cleanSearchTitle);
+
+        if (meta) {
+          const dataToSave = {
+            path: folderName,
+            title: meta.title.romaji || meta.title.english || folderName,
+            description: meta.description || "Sin descripción disponible.",
+            status: meta.status || "Desconocido",
+            genres: meta.genres ? JSON.stringify(meta.genres) : "[]",
+            bannerImage: meta.bannerImage || null,
+            coverImage: meta.coverImage?.extraLarge || meta.coverImage?.large || null,
+            anilistId: meta.id || null,
+            updatedAt: new Date()
+          };
+
+          if (!existing) {
+            await db.insert(mangas).values(dataToSave);
+            console.log(`✅ Nuevo: ${folderName} guardado con éxito.`);
+          } else {
+            await db.update(mangas).set(dataToSave).where(eq(mangas.id, existing.id));
+            console.log(`🔄 Actualizado: ${folderName} ya tiene metadatos oficiales.`);
           }
-        } catch (e) { console.log("Sin XML en", mangaFolderName); }
-      }
-
-      // Guardar en DB (Buscamos por PATH para no duplicar)
-      const existing = await db.query.mangas.findFirst({ where: eq(mangas.path, mangaFolderName) });
-
-      if (existing) {
-        await db.update(mangas).set({
-          title: metadata.title,
-          author: metadata.author,
-          description: metadata.description,
-          genres: metadata.genres,
-        }).where(eq(mangas.id, existing.id));
-      } else {
-        await db.insert(mangas).values({
-          title: metadata.title,
-          path: mangaFolderName,
-          author: metadata.author,
-          description: metadata.description,
-          genres: metadata.genres,
-          libraryId: library.id
-        });
+        } else {
+          // Si no hay meta pero el manga no existe en DB, creamos el registro básico
+          if (!existing) {
+            await db.insert(mangas).values({
+              path: folderName,
+              title: folderName,
+              description: "Sin descripción disponible.",
+              updatedAt: new Date()
+            });
+            console.log(`⚠️ No se halló meta para ${folderName}, creado registro base.`);
+          } else {
+            console.log(`❌ Seguimos sin metadatos para: ${folderName}`);
+          }
+        }
       }
     }
 
-    return NextResponse.json({ success: true, message: "Biblioteca limpia y organizada" });
+    return NextResponse.json({ success: true, message: "Sincronización de metadatos completada." });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("❌ Error en el escaneo:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

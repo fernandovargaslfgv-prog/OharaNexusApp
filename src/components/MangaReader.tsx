@@ -3,12 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-interface MangaPage {
-  name?: string;
-}
-
 interface MangaReaderProps {
-  images: (string | MangaPage)[]; 
+  images: string[]; 
   title: string;
   chapter: string;
   coverImage: string;
@@ -24,13 +20,12 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
   const [isZoomed, setIsZoomed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 1. CARGA INICIAL
+  // 1. CARGA INICIAL Y PREFERENCIAS
   useEffect(() => {
     if (!images || images.length === 0) return;
     const safeTitle = title.trim().toLowerCase();
     const safeChapter = chapter.trim();
     
-    // De momento leemos de localStorage para carga instantánea (modo offline)
     const savedPage = localStorage.getItem(`nexus-page-${safeTitle}-${safeChapter}`);
     if (savedPage) {
       const parsedPage = parseInt(savedPage, 10);
@@ -43,55 +38,55 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
     setIsLoaded(true);
   }, [title, chapter, images]);
 
-  // 2. SINCRONIZACIÓN DE POSICIÓN (Solo al cambiar de modo o carga inicial)
+  // 2. SINCRONIZACIÓN DE POSICIÓN (Al cambiar modo o carga inicial)
   useEffect(() => {
     if (isLoaded && containerRef.current) {
       const container = containerRef.current;
       if (readMode === "horizontal") {
         container.scrollTo({ left: currentPage * container.clientWidth, behavior: 'instant' });
       } else {
-        const pageHeight = container.scrollHeight / (images.length || 1);
-        container.scrollTo({ top: currentPage * pageHeight, behavior: 'instant' });
+        const children = Array.from(container.children) as HTMLElement[];
+        const targetImg = children[currentPage];
+        if (targetImg) {
+          container.scrollTo({ top: targetImg.offsetTop - 80, behavior: 'instant' });
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readMode, isLoaded]); 
 
-  // 3. GUARDADO DE PROGRESO (Caché Local + Sincronización con Servidor)
+  // 3. GUARDADO DE PROGRESO (LocalStorage + Servidor SQLite)
   useEffect(() => {
     if (!isLoaded || !images || images.length === 0) return;
-    const titleKey = title.trim().toLowerCase();
+    const titleKey = title.trim();
     const safeChapter = chapter.trim();
     
-    // A) Guardado en Caché Local (Preparando el terreno para la APK / Modo Offline)
-    localStorage.setItem(`nexus-page-${titleKey}-${safeChapter}`, currentPage.toString());
-    localStorage.setItem(`nexus-last-${titleKey}`, safeChapter);
-    localStorage.setItem("nexus-latest-title", title.trim()); 
-    localStorage.setItem("nexus-latest-chapter", safeChapter);
-    localStorage.setItem("nexus-latest-image", coverImage);
+    // A) LocalStorage (Para redundancia)
+    localStorage.setItem(`nexus-page-${titleKey.toLowerCase()}-${safeChapter}`, currentPage.toString());
+    localStorage.setItem(`nexus-last-${titleKey.toLowerCase()}`, safeChapter);
 
-    try {
-      const rawHistory = localStorage.getItem("nexus-history");
-      let history = rawHistory ? JSON.parse(rawHistory) : [];
-      const historyItem = { title: title.trim(), chapter: safeChapter, image: coverImage, timestamp: Date.now() };
-      const filteredHistory = history.filter((item: any) => item.title.toLowerCase() !== titleKey);
-      localStorage.setItem("nexus-history", JSON.stringify([historyItem, ...filteredHistory].slice(0, 20)));
-    } catch (e) {}
+    // B) Sincronización con el Servidor (Para que aparezca en la Home)
+    const syncHistory = async () => {
+      try {
+        await fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: titleKey,
+            chapter: safeChapter,
+            page: currentPage
+          })
+        });
+      } catch (err) {
+        console.error("Error sincronizando historial:", err);
+      }
+    };
 
-    // B) NUEVO: Sincronización con el Servidor (SQLite)
-    fetch("/api/history", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.trim(),
-        chapter: safeChapter,
-        page: currentPage
-      })
-    }).catch(err => console.error("Error guardando progreso en el servidor:", err));
+    const timer = setTimeout(syncHistory, 800); // Debounce para no saturar la DB
+    return () => clearTimeout(timer);
+  }, [currentPage, isLoaded, title, chapter]);
 
-  }, [currentPage, isLoaded, title, chapter, coverImage, images]);
-
-  // 4. DETECTOR DE PÁGINA
+  // 4. DETECTOR DE PÁGINA SEGÚN EL SCROLL
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (isZoomed) return;
     const target = e.currentTarget;
@@ -100,8 +95,9 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
     if (readMode === "horizontal") {
       index = Math.round(target.scrollLeft / target.clientWidth);
     } else {
-      const itemHeight = target.scrollHeight / images.length;
-      index = Math.floor((target.scrollTop + (target.clientHeight / 2)) / itemHeight);
+      const children = Array.from(target.children) as HTMLElement[];
+      const scrollTop = target.scrollTop + 150;
+      index = children.findIndex(child => child.offsetTop + child.clientHeight > scrollTop);
     }
 
     if (index !== currentPage && index >= 0 && index < images.length) {
@@ -120,10 +116,10 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
       <nav className={`fixed top-0 w-full z-50 bg-black/95 backdrop-blur-md border-b border-white/5 flex justify-between items-center px-4 pt-[calc(env(safe-area-inset-top,0px)+1.2rem)] pb-3 transition-transform duration-300 ${isZoomed ? '-translate-y-full' : 'translate-y-0'}`}>
         <Link href={`/manga/${encodeURIComponent(title)}`} className="text-[10px] font-black uppercase text-zinc-400 py-2">← Volver</Link>
         <div className="flex flex-col items-center">
-          <span className="text-[8px] font-black uppercase text-zinc-600 truncate max-w-[120px]">{title}</span>
+          <span className="text-[8px] font-black uppercase text-red-600 italic tracking-tighter truncate max-w-[150px]">{title}</span>
           <span className="text-white font-black text-xs bg-zinc-900 px-2 py-0.5 rounded">{currentPage + 1} / {images.length}</span>
         </div>
-        <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-zinc-400">⚙️</button>
+        <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-zinc-400 text-lg">⚙️</button>
       </nav>
 
       {/* ÁREA DE LECTURA */}
@@ -138,34 +134,29 @@ export default function MangaReader({ images, title, chapter, coverImage }: Mang
         style={{ WebkitOverflowScrolling: 'touch' }}
         onClick={() => setShowSettings(false)}
       >
-        {images.map((img, i) => {
-          const pageName = typeof img === 'string' ? img : img?.name;
-          const src = `/api/page?title=${encodeURIComponent(title)}&chapter=${encodeURIComponent(chapter)}&pageName=${encodeURIComponent(pageName || "")}`;
-          
-          return (
-            <div key={i} 
-                 className={`
-                  ${readMode === "horizontal" ? "inline-block w-screen h-full snap-center align-top" : "block w-full h-auto flex-shrink-0 mb-1"} 
-                  overflow-hidden
-                 `}
-                 onDoubleClick={toggleZoom}
-                 onTouchEnd={(e) => { if (e.detail === 2) toggleZoom(); }}
+        {images.map((src, i) => (
+          <div key={i} 
+               className={`
+                ${readMode === "horizontal" ? "inline-block w-screen h-full snap-center align-top" : "block w-full h-auto flex-shrink-0 mb-1"} 
+                relative overflow-hidden
+               `}
+               onDoubleClick={toggleZoom}
+          >
+            <div className={`w-full h-full flex items-center justify-center transition-transform duration-300 ease-in-out
+                            ${isZoomed && i === currentPage ? "scale-[2.5] z-50" : "scale-100"}`}
             >
-              <div className={`w-full h-full flex items-center justify-center transition-transform duration-300 ease-in-out
-                              ${isZoomed && i === currentPage ? "scale-[2.2] z-50" : "scale-100"}`}
-              >
-                <img 
-                  src={src} 
-                  alt={`Página ${i+1}`} 
-                  className={`${readMode === "horizontal" ? "max-w-full max-h-full" : "w-full h-auto"} object-contain pointer-events-none`} 
-                />
-              </div>
+              <img 
+                src={src} 
+                alt={`Página ${i+1}`} 
+                className={`${readMode === "horizontal" ? "max-w-full max-h-full" : "w-full h-auto"} object-contain pointer-events-none`} 
+                loading={i < 3 ? "eager" : "lazy"}
+              />
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      {/* PROGRESO */}
+      {/* PROGRESO INFERIOR */}
       <div className={`h-1 bg-zinc-900 w-full fixed bottom-0 z-50 transition-transform duration-300 ${isZoomed ? 'translate-y-full' : 'translate-y-0'}`}>
         <div className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] transition-all duration-300" style={{ width: `${((currentPage + 1) / images.length) * 100}%` }} />
       </div>

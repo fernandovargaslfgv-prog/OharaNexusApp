@@ -18,14 +18,12 @@ export async function GET(req: NextRequest) {
     const zip = new AdmZip(chapterPath);
     const entry = zip.getEntry(page);
 
-    if (!entry) return new NextResponse("Página no encontrada", { status: 404 });
+    if (!entry) return new NextResponse("No encontrada", { status: 404 });
 
     const buffer = entry.getData();
-    
     const ext = path.extname(page).toLowerCase();
     const contentType = ext === '.png' ? 'image/png' : 'image/jpeg';
 
-    // CORRECCIÓN: Envolvemos el buffer en Uint8Array para que TypeScript sea feliz
     return new NextResponse(new Uint8Array(buffer), {
       headers: { 
         "Content-Type": contentType,
@@ -33,7 +31,6 @@ export async function GET(req: NextRequest) {
       }
     });
   } catch (err) {
-    console.error("🔥 Error render-page:", err);
-    return new NextResponse("Error extrayendo imagen", { status: 500 });
+    return new NextResponse("Error cargando página", { status: 500 });
   }
 }

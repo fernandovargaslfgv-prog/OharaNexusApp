@@ -20,50 +20,36 @@ export default async function ReaderPage({ params }: ReaderPageProps) {
   const decodedChapter = decodeURIComponent(chapter);
 
   const mangaData = await db.query.mangas.findFirst({
-    where: or(
-      eq(mangas.title, decodedTitle),
-      eq(mangas.path, decodedTitle)
-    ),
+    where: or(eq(mangas.title, decodedTitle), eq(mangas.path, decodedTitle)),
   });
 
   const folderName = mangaData?.path || decodedTitle;
-  const mangaPath = path.join(MANGA_ROOT, folderName);
-  const chapterFilePath = path.join(mangaPath, decodedChapter);
+  const chapterFilePath = path.join(MANGA_ROOT, folderName, decodedChapter);
 
-  if (!fs.existsSync(chapterFilePath)) {
-    return <div className="text-white p-10 font-black">ARCHIVO NO ENCONTRADO</div>;
-  }
-
-  // --- LÓGICA PARA EXTRAER LA LISTA DE IMÁGENES ---
   let imageUrls: string[] = [];
-  try {
-    const zip = new AdmZip(chapterFilePath);
-    const entries = zip.getEntries();
-    
-    // Filtramos solo archivos de imagen y ordenamos alfabéticamente
-    imageUrls = entries
-      .filter(e => !e.isDirectory && /\.(jpg|jpeg|png|webp|avif)$/i.test(e.entryName) && !e.entryName.includes('__MACOSX'))
-      .map(e => e.entryName)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-      // Creamos la URL que el componente usará para pedir cada página
-      .map(imgName => `/api/render-page?series=${encodeURIComponent(folderName)}&chapter=${encodeURIComponent(decodedChapter)}&page=${encodeURIComponent(imgName)}`);
-  } catch (err) {
-    console.error("Error leyendo imágenes del capítulo:", err);
+  if (fs.existsSync(chapterFilePath)) {
+    try {
+      const zip = new AdmZip(chapterFilePath);
+      imageUrls = zip.getEntries()
+        .filter((e: any) => !e.isDirectory && /\.(jpg|jpeg|png|webp)$/i.test(e.entryName))
+        .map((e: any) => e.entryName)
+        .sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }))
+        .map((img: string) => `/api/render-page?series=${encodeURIComponent(folderName)}&chapter=${encodeURIComponent(decodedChapter)}&page=${encodeURIComponent(img)}`);
+    } catch (e) { console.error(e); }
   }
-
-  const chapterCoverUrl = `/api/cover?series=${encodeURIComponent(folderName)}&chapter=${encodeURIComponent(decodedChapter)}`;
 
   return (
-  <main className="bg-black min-h-screen text-white">
-     {/* ... cabecera ... */}
-     <section className="relative z-10">
-        <MangaReader 
-          title={folderName} 
-          chapter={decodedChapter} 
-          images={imageUrls} // <--- ESTO NO PUEDE ESTAR VACÍO []
-          coverImage={chapterCoverUrl} 
-        />
-     </section>
-  </main>
-);
+    <main className="bg-black min-h-screen text-white">
+      <div className="p-4 border-b border-white/5 flex justify-between items-center">
+        <h1 className="text-xs font-black uppercase text-red-600 italic">{mangaData?.title || folderName}</h1>
+        <Link href={`/manga/${encodeURIComponent(folderName)}`} className="text-[10px] font-black bg-zinc-900 px-4 py-2 rounded-full italic">SALIR</Link>
+      </div>
+      <MangaReader 
+        title={folderName} 
+        chapter={decodedChapter} 
+        images={imageUrls} 
+        coverImage={`/api/cover?series=${encodeURIComponent(folderName)}`} 
+      />
+    </main>
+  );
 }
