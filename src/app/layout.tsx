@@ -13,26 +13,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Ohara Nexus",
-  description: "Disfruta de tus mangas favoritos en Ohara Nexus",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "Ohara Nexus",
-  },
-};
-
-// AJUSTE CRÍTICO PARA EL WEBVIEW DE ANDROID
+// AJUSTE CRÍTICO PARA EL WEBVIEW / PWA
 export const viewport: Viewport = {
   themeColor: "#000000",
   width: "device-width",
   initialScale: 1,
   minimumScale: 1,
-  maximumScale: 5, // Evita zoom accidental al tocar botones
-  userScalable: true, // En una APK es mejor desactivarlo para que se sienta nativa
+  maximumScale: 1, // Bloquea el zoom de pellizco en la UI para sentirse como app nativa
+  userScalable: false, // Desactivado para que parezca una app real y no una web
   viewportFit: "cover", // Usa toda la pantalla (notch incluido)
+};
+
+export const metadata: Metadata = {
+  title: "Ohara Nexus",
+  description: "Disfruta de tus mangas favoritos en Ohara Nexus",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Ohara Nexus",
+  },
+  formatDetection: {
+    telephone: false, // Evita que los números de capítulos se vuelvan azules en iOS/Safari
+  },
 };
 
 export default function RootLayout({
@@ -61,6 +63,7 @@ export default function RootLayout({
           }}
         />
 
+        {/* Script del Service Worker preparado para interceptar peticiones offline */}
         <script
           dangerouslySetInnerHTML={{
             __html: `

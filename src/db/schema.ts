@@ -24,20 +24,41 @@ export const sessions = sqliteTable("session", {
 export const libraries = sqliteTable("libraries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
-  path: text("path").notNull().unique(), // Ej: /mnt/media/manga
+  path: text("path").notNull().unique(), 
 });
 
 export const mangas = sqliteTable("mangas", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   libraryId: integer("library_id")
     .references(() => libraries.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  path: text("path").notNull().unique(), // Ruta relativa o absoluta del manga
-  author: text("author").default("Nexus Library"),
+  title: text("title").notNull(), // Título de la carpeta o del XML
+  path: text("path").notNull().unique(),
   cover: text("cover"),
-  description: text("description"),
-  lastScan: integer("last_scan"), // Timestamp del último escaneo
+  
+  // Metadatos extendidos (Manga Plus Style)
+  author: text("author").default("Autor desconocido"),
+  artist: text("artist"),
+  description: text("description"), // Sinopsis / Argumento
+  genres: text("genres"), // Guardaremos "Acción, Aventura, Seinen"
+  status: text("status").default("Desconocido"), // Ej: Ongoing, Completed
+  year: integer("year"),
+  type: text("type").default("Manga"), // Manga, Manhwa, Comic
+  
+  lastScan: integer("last_scan"), 
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`CURRENT_TIMESTAMP`),
+});
+
+// NUEVA: Para guardar la info de cada archivo dentro del manga
+export const chapters = sqliteTable("chapters", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  mangaId: integer("manga_id")
+    .notNull()
+    .references(() => mangas.id, { onDelete: "cascade" }),
+  number: text("number").notNull(), // El número del cap (ej: "1", "10.5")
+  title: text("title"), // El nombre del capítulo (ej: "Aquel día") extraído del XML
+  path: text("path").notNull(), // Ruta al archivo .cbz / .zip
+  cover: text("cover"), // Miniatura opcional del capítulo
+  createdAt: integer("created_at").default(sql`(strftime('%s', 'now'))`),
 });
 
 // --- TABLAS RELACIONADAS CON EL USUARIO ---
@@ -61,15 +82,15 @@ export const history = sqliteTable("history", {
   mangaId: integer("manga_id")
     .notNull()
     .references(() => mangas.id, { onDelete: "cascade" }),
-  lastChapter: text("last_chapter").notNull(),
+  lastChapter: text("last_chapter").notNull(), // Guardamos el número o el ID del capítulo
   lastPage: integer("last_page").default(0),
   updatedAt: integer("updated_at").default(sql`(strftime('%s', 'now'))`),
 });
 
-// --- NUEVA: TABLA DE CONFIGURACIÓN GLOBAL/USUARIO ---
+// --- TABLA DE CONFIGURACIÓN ---
 
 export const settings = sqliteTable("settings", {
-  key: text("key").primaryKey(), // Ej: 'server_mode', 'default_library_path'
+  key: text("key").primaryKey(), 
   value: text("value").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`CURRENT_TIMESTAMP`),
 });

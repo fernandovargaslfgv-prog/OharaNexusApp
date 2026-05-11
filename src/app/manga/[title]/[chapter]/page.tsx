@@ -1,49 +1,69 @@
+import fs from "fs";
+import path from "path";
+import Link from "next/link";
+// @ts-ignore
+import AdmZip from "adm-zip";
 import { db } from "@/db";
 import { mangas } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { getMangaImages } from "@/lib/localfile";
+import { eq, or } from "drizzle-orm";
 import MangaReader from "@/components/MangaReader";
-import path from "path";
 
-export default async function ChapterPage({ params }: { params: { title: string, chapter: string } }) {
-  // Decodificamos los parámetros para evitar errores con espacios o símbolos
+type ReaderPageProps = {
+  params: Promise<{ title: string; chapter: string }>;
+};
+
+const MANGA_ROOT = process.env.MANGA_PATH || "/app/mangas_data";
+
+export default async function ReaderPage({ params }: ReaderPageProps) {
   const { title, chapter } = await params;
   const decodedTitle = decodeURIComponent(title);
   const decodedChapter = decodeURIComponent(chapter);
 
-  // Buscamos el manga en la DB para sacar la ruta y la portada
-  const manga = await db.query.mangas.findFirst({
-    where: eq(mangas.title, decodedTitle),
+  const mangaData = await db.query.mangas.findFirst({
+    where: or(
+      eq(mangas.title, decodedTitle),
+      eq(mangas.path, decodedTitle)
+    ),
   });
 
-  if (!manga) return <div className="text-white p-10">Manga no encontrado</div>;
+  const folderName = mangaData?.path || decodedTitle;
+  const mangaPath = path.join(MANGA_ROOT, folderName);
+  const chapterFilePath = path.join(mangaPath, decodedChapter);
 
-  try {
-    // Unimos la carpeta del manga con el nombre del archivo del capítulo
-    const fullPath = path.join(manga.path, decodedChapter);
-    
-    // Verificamos si la ruta ya es el archivo o si hay que usar la unión
-    const finalPath = manga.path.endsWith(decodedChapter) ? manga.path : fullPath;
-
-    const images = await getMangaImages(finalPath);
-
-    return (
-      <main className="bg-black min-h-screen">
-        <MangaReader 
-          images={images} 
-          title={decodedTitle} 
-          chapter={decodedChapter} 
-          coverImage={manga.cover || ""} // <--- ESTA ES LA PROPIEDAD QUE TE PIDE EL ERROR
-        />
-      </main>
-    );
-  } catch (error: any) {
-    console.error(error);
-    return (
-      <div className="text-white p-10">
-        <h1 className="text-red-500 font-bold">Error al abrir el capítulo</h1>
-        <p className="text-xs opacity-50">{error.message}</p>
-      </div>
-    );
+  if (!fs.existsSync(chapterFilePath)) {
+    return <div className="text-white p-10 font-black">ARCHIVO NO ENCONTRADO</div>;
   }
+
+  // --- LÓGICA PARA EXTRAER LA LISTA DE IMÁGENES ---
+  let imageUrls: string[] = [];
+  try {
+    const zip = new AdmZip(chapterFilePath);
+    const entries = zip.getEntries();
+    
+    // Filtramos solo archivos de imagen y ordenamos alfabéticamente
+    imageUrls = entries
+      .filter(e => !e.isDirectory && /\.(jpg|jpeg|png|webp|avif)$/i.test(e.entryName) && !e.entryName.includes('__MACOSX'))
+      .map(e => e.entryName)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      // Creamos la URL que el componente usará para pedir cada página
+      .map(imgName => `/api/render-page?series=${encodeURIComponent(folderName)}&chapter=${encodeURIComponent(decodedChapter)}&page=${encodeURIComponent(imgName)}`);
+  } catch (err) {
+    console.error("Error leyendo imágenes del capítulo:", err);
+  }
+
+  const chapterCoverUrl = `/api/cover?series=${encodeURIComponent(folderName)}&chapter=${encodeURIComponent(decodedChapter)}`;
+
+  return (
+  <main className="bg-black min-h-screen text-white">
+     {/* ... cabecera ... */}
+     <section className="relative z-10">
+        <MangaReader 
+          title={folderName} 
+          chapter={decodedChapter} 
+          images={imageUrls} // <--- ESTO NO PUEDE ESTAR VACÍO []
+          coverImage={chapterCoverUrl} 
+        />
+     </section>
+  </main>
+);
 }
